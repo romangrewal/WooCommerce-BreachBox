@@ -1,0 +1,36 @@
+server {
+    listen 80;
+    server_name registry.hq.pentestacademy.tech;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name registry.hq.pentestacademy.tech;
+
+    ssl_certificate /etc/letsencrypt/live/registry.hq.pentestacademy.tech/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/registry.hq.pentestacademy.tech/privkey.pem;
+
+    client_max_body_size 500M;
+    # Location block for the Docker Registry API
+    location /v2/ {
+        proxy_pass http://my-registry:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 900s; # Increased timeout for large image pushes
+
+    }
+
+    location / {
+        return 200 "Nginx is serving the Docker Registry.";
+    }
+}

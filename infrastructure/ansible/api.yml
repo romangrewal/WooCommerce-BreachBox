@@ -1,0 +1,8 @@
+- name: Deploy API
+  hosts: api
+  become: yes
+  roles:
+    - dependencies
+    - postgres
+    - docker-api
+    - nginx-api

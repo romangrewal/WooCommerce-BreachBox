@@ -1,0 +1,71 @@
+---
+- name: Deploy PenTest Academy backend systems
+  block:
+    - name: Create Docker network
+      containers.podman.podman_network:
+        name: "{{ api_network }}"
+        state: present
+
+    - name: Create pentestacademy Podman network
+      containers.podman.podman_network:
+        name: "{{ api_network }}"
+        state: present
+
+    - name: Run PostgreSQL container
+      containers.podman.podman_container:
+        name: pentestacademy-db
+        image: "docker.io/postgres:{{ postgres_version }}"
+        restart_policy: always
+        env:
+          POSTGRES_USER: "{{ db_user }}"
+          POSTGRES_PASSWORD: "{{ db_password }}"
+          POSTGRES_DB: "{{ db_name }}"
+        volumes:
+          - pgdata:/var/lib/postgresql/data
+        network: "{{ api_network }}"
+        published_ports:
+          - "5432:5432"
+
+    - name: Ensure psycopg2 is installed
+      ansible.builtin.package:
+        name: python3-psycopg2
+        state: present
+
+    - name: Create 'waitlist' table
+      community.postgresql.postgresql_query:
+        login_host: "{{ db_host }}"
+        login_user: "{{ db_user }}"
+        login_password: "{{ db_password }}"
+        db: "{{ db_name }}"
+        query: |
+          CREATE TABLE IF NOT EXISTS waitlist (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(50) NOT NULL,
+            email VARCHAR(100) NOT NULL,
+            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc')
+          );
+    
+    - name: Create index on 'waitlist.email'
+      community.postgresql.postgresql_query:
+        login_host: "{{ db_host }}"
+        login_user: "{{ db_user }}"
+        login_password: "{{ db_password }}"
+        db: "{{ db_name }}"
+        query: |
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_person_email 
+          ON waitlist (email);
+
+  vars:
+    db_host: 127.0.0.1
+    db_user: api
+    db_password: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          30323862316463363766323537663264353932633665396264383432346137646531303364333762
+          3531653230663533366662383862623937373861613233310a656465373238376134313930636362
+          30383634623632326131336434356263396237636230353264333761633764323632316436316161
+          6664623961316338620a383732336166326562643261346165363563323932396134626436656666
+          65303734366631643065343833646165366632636165633035636531626262336630
+    db_name: pentestacademy
+    postgres_version: "15"
+    api_image: "registry.hq.pentestacademy.tech/api:latest"
+    api_network: api-net

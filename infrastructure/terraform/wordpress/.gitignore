@@ -1,0 +1,20 @@
+# Terraform
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+
+# Sensitive files
+terraform.tfvars
+*.pem
+*.key
+*.crt
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Ansible
+*.retry
+*.log

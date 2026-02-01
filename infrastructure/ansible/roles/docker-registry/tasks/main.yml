@@ -1,0 +1,55 @@
+- name: Deploy Docker Registry
+  block:
+    - name: Ensure Podman is installed
+      ansible.builtin.package:
+        name: podman
+        state: present
+
+    - name: Pull the Docker Registry image
+      containers.podman.podman_image:
+        name: docker.io/library/registry:2 # Using the official Docker Registry image
+        state: present
+
+    - name: Create the registry data directory
+      ansible.builtin.file:
+        path: /var/lib/registry
+        state: directory
+        mode: '0755'
+
+    - name: Ensure the directory /etc/registry exists
+      ansible.builtin.file:
+        path: /etc/registry
+        state: directory
+
+    - name: Copy htpasswd file for Docker Registry
+      template:
+        src: registry.htpasswd
+        dest: /etc/registry/registry.htpasswd
+        owner: root
+        group: root
+        mode: '0644'
+    
+    - name: Create podman network
+      containers.podman.podman_network:
+        name: web_net
+        state: present
+
+    - name: Run the Docker Registry container
+      containers.podman.podman_container:
+        name: my-registry
+        image: docker.io/library/registry:2
+        state: started
+        detach: true
+        network: web_net
+        exposed_ports:
+          - 5000 # Default registry port
+        ports:
+          - "5000:5000" # Map host port 5000 to container port 5000
+        volumes:
+          - /var/lib/registry:/var/lib/registry:Z # Persist registry data
+          - /etc/registry/registry.htpasswd:/auth/registry.htpasswd:Z
+        env:
+          REGISTRY_AUTH: htpasswd
+          REGISTRY_AUTH_HTPASSWD_REALM: Registry
+          REGISTRY_AUTH_HTPASSWD_PATH: /auth/registry.htpasswd
+        restart_policy: always # Ensure the registry restarts with the host

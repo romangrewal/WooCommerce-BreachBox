@@ -1,0 +1,5 @@
+- name: Deploy Postgres
+  hosts: localhost.localdomain
+  become: yes
+  roles:
+    - postgres
