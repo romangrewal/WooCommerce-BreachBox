@@ -98,6 +98,15 @@
         - { regexp: 'username_here', line: "define( 'DB_USER', '{{ wp_db_user }}' );" }
         - { regexp: 'password_here', line: "define( 'DB_PASSWORD', '{{ wp_db_pass }}' );" }
 
+    - name: Disable WordPress Auto-Updates in wp-config.php
+      lineinfile:
+        path: "{{ wp_root_dir }}/wp-config.php"
+        insertbefore: "\\/\\* That's all, stop editing! \\*\\/"
+        line: "{{ item }}"
+      loop:
+        - "define( 'AUTOMATIC_UPDATER_DISABLED', true );"
+        - "define( 'WP_AUTO_UPDATE_CORE', false );"
+
     - name: Set permissions (Vulnerable 777 for lab simulation)
       file:
         path: "{{ wp_root_dir }}"
@@ -106,6 +115,52 @@
         owner: www-data
         group: www-data
         mode: '0777' # PCI Violation: Insecure directory permissions
+
+    - name: Download Legacy WooCommerce 3.4.0
+      get_url:
+        url: https://downloads.wordpress.org/plugin/woocommerce.3.4.0.zip
+        dest: /tmp/woocommerce.3.4.0.zip
+
+    - name: Ensure Unzip is installed
+      apt:
+        name: unzip
+        state: present
+
+    - name: Extract WooCommerce to Plugins Directory
+      unarchive:
+        src: /tmp/woocommerce.3.4.0.zip
+        dest: "{{ wp_root_dir }}/wp-content/plugins/"
+        remote_src: yes
+        owner: www-data
+        group: www-data
+
+    - name: Force Insecure Permissions on Plugin Directory
+      file:
+        path: "{{ wp_root_dir }}/wp-content/plugins/woocommerce"
+        state: directory
+        recurse: yes
+        mode: '0777' # PCI Violation: Allows attackers to inject malicious code into the payment gateway
+
+    - name: Download WP-CLI
+      get_url:
+        url: https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+        dest: /usr/local/bin/wp
+        mode: '0755'
+
+    - name: Create Wordpress database tables
+      command: >
+        wp core install
+        --url="http://{{ ansible_eth1.ipv4.address }}" 
+        --title="Insecure WooCommerce Store"
+        --admin_user="admin"
+        --admin_password="P@ssword123"
+        --admin_email="admin@example.com"
+        --path="{{ wp_root_dir }}"
+        --allow-root
+
+    - name: Activate WooCommerce via CLI
+      command: "wp plugin activate woocommerce --allow-root --path={{ wp_root_dir }}"
+      ignore_errors: yes
 
   handlers:
     - name: restart apache

@@ -1,6 +1,0 @@
-- name: Deploy Frontend
-  hosts: frontend
-  become: yes
-  roles:
-    - docker-frontend
-    - nginx-frontend
