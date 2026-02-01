@@ -1,49 +1,58 @@
 ---
-- name: Install WordPress Locally
+- name: Install Vulnerable WordPress 5.0 on Ubuntu 16.04
   hosts: localhost
   become: yes
   vars:
     wp_db_name: "wordpress_db"
     wp_db_user: "wp_user"
-    wp_db_pass: "InsecurePassword123" # Intentionally weak for lab
+    wp_db_pass: "InsecurePassword123" # PCI Violation: Weak password
     wp_root_dir: "/var/www/html"
 
   tasks:
-    - name: Update apt cache
+    - name: Install prerequisite packages
       apt:
+        name: 
+          - software-properties-common
+          - python-mysqldb # Ubuntu 18.04 uses python3
+        state: present
         update_cache: yes
 
-    - name: Add Ondrej PHP PPA
-      apt_repository:
-        repo: 'ppa:ondrej/php'
-        state: present
-
-    - name: Install PHP 7.4 and WordPress dependencies
+    - name: Install Apache, MariaDB, and PHP 7.0 Stack
       apt:
         name:
           - apache2
           - mariadb-server
-          - php7.4                 # Specific version
-          - php7.4-mysql
-          - php7.4-gd
-          - php7.4-xml
-          - php7.4-mbstring
-          - libapache2-mod-php7.4
-          - python-mysqldb
+          - php7.0
+          - php7.0-common
+          - php7.0-mysql
+          - php7.0-xml
+          - php7.0-xmlrpc
+          - php7.0-curl
+          - php7.0-gd
+          - php-imagick # Essential for WP 5.0 RCE
+          - php7.0-mbstring
+          - php7.0-zip
+          - libapache2-mod-php7.0
         state: present
-        update_cache: yes
 
-    - name: Ensure MariaDB is running
+    - name: Enable PHP 7.0 MySQL extension
+      command: phpenmod mysql mysqli
+      notify: restart apache
+
+    - name: Ensure Apache PHP module is enabled
+      apache2_module:
+        name: php7.0
+        state: present
+      notify: restart apache 
+
+    - name: Start Services
       service:
-        name: mysql  # MariaDB on Ubuntu 16.04 often still uses the 'mysql' service alias
+        name: "{{ item }}"
         state: started
         enabled: yes
-
-    - name: Ensure Apache is started
-      service:
-        name: apache2
-        state: started
-        enabled: yes
+      loop:
+        - apache2
+        - mysql
 
     - name: Create MySQL database
       mysql_db:
@@ -51,7 +60,7 @@
         state: present
         login_unix_socket: /var/run/mysqld/mysqld.sock
 
-    - name: Create MySQL user
+    - name: Create MySQL user (with high privileges for lab)
       mysql_user:
         name: "{{ wp_db_user }}"
         password: "{{ wp_db_pass }}"
@@ -60,13 +69,13 @@
         host: "localhost"
         login_unix_socket: /var/run/mysqld/mysqld.sock
 
-    - name: Download and Unarchive WordPress
+    - name: Download WordPress 5.0
       unarchive:
-        src: https://wordpress.org/latest.tar.gz
+        src: https://wordpress.org/wordpress-5.0.tar.gz
         dest: /tmp
         remote_src: yes
 
-    - name: Copy WordPress files to Web Root
+    - name: Copy WordPress to Web Root
       copy:
         src: /tmp/wordpress/
         dest: "{{ wp_root_dir }}"
@@ -74,11 +83,32 @@
         group: www-data
         remote_src: yes
 
-    - name: Set permissions for WordPress
+    - name: Create wp-config.php from sample
+      command: cp {{ wp_root_dir }}/wp-config-sample.php {{ wp_root_dir }}/wp-config.php
+      args:
+        creates: "{{ wp_root_dir }}/wp-config.php"
+
+    - name: Configure wp-config.php database settings
+      lineinfile:
+        path: "{{ wp_root_dir }}/wp-config.php"
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: 'database_name_here', line: "define( 'DB_NAME', '{{ wp_db_name }}' );" }
+        - { regexp: 'username_here', line: "define( 'DB_USER', '{{ wp_db_user }}' );" }
+        - { regexp: 'password_here', line: "define( 'DB_PASSWORD', '{{ wp_db_pass }}' );" }
+
+    - name: Set permissions (Vulnerable 777 for lab simulation)
       file:
         path: "{{ wp_root_dir }}"
         state: directory
         recurse: yes
         owner: www-data
         group: www-data
-        mode: '0755'
+        mode: '0777' # PCI Violation: Insecure directory permissions
+
+  handlers:
+    - name: restart apache
+      service:
+        name: apache2
+        state: restarted
