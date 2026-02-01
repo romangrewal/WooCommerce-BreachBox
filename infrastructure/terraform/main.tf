@@ -14,7 +14,7 @@ resource "aws_subnet" "public_subnet" {
   vpc_id                  = aws_vpc.commerce_cloud.id
   cidr_block              = "10.0.1.0/24"
   map_public_ip_on_launch = true # Ensures your instance gets a Public IP
-  availability_zone       = "us-east-2"
+  availability_zone       = "us-east-2a"
 
   tags = { Name = "commerce-cloud-subnet" }
 }
@@ -91,6 +91,7 @@ resource "aws_security_group" "web_access" {
 data "aws_ami" "ubuntu_16_04" {
   most_recent = true
   owners      = ["099720109477"] # Canonical
+  include_deprecated = true
 
   filter {
     name   = "name"
@@ -103,20 +104,69 @@ data "aws_ami" "ubuntu_16_04" {
   }
 }
 
-# Launch the EC2 Instance
-resource "aws_instance" "legacy_server" {
-  ami           = data.aws_ami.ubuntu_16_04.id
-  instance_type = "t3.micro" # Note: Avoid newer Nitro-only families like m7g
+# 1. Database Security Group
+resource "aws_security_group" "db_access" {
+  name        = "db-access-sg"
+  description = "Allow MySQL traffic from Web Server"
+  vpc_id      = aws_vpc.commerce_cloud.id
 
-  tags = {
-    Name = "Legacy-Ubuntu-16.04"
+  # MySQL access only from the Web Security Group
+  ingress {
+    from_port       = 3306
+    to_port         = 3306
+    protocol        = "tcp"
+    security_groups = [aws_security_group.web_access.id] 
   }
+
+  # Allow SSH for management (optional, based on your lab needs)
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# 1. Register the Public Key with AWS
+resource "aws_key_pair" "lab_key" {
+  key_name   = "vuln-lab-key"
+  public_key = file("${path.module}/id_rsa.pub")
+}
+
+# 2. Update Web Server to use the key
+resource "aws_instance" "web_server" {
+  ami                    = data.aws_ami.ubuntu_16_04.id
+  instance_type          = "t3.micro"
+  key_name               = aws_key_pair.lab_key.key_name # Associated Key
+  subnet_id              = aws_subnet.public_subnet.id
+  vpc_security_group_ids = [aws_security_group.web_access.id]
+  
+  tags = { Name = "Legacy-Woo-Web" }
+}
+
+# 3. Update DB Server to use the same key
+resource "aws_instance" "db_server" {
+  ami                    = data.aws_ami.ubuntu_16_04.id
+  instance_type          = "t3.micro"
+  key_name               = aws_key_pair.lab_key.key_name # Associated Key
+  subnet_id              = aws_subnet.public_subnet.id
+  vpc_security_group_ids = [aws_security_group.db_access.id]
+
+  tags = { Name = "Legacy-Woo-DB" }
 }
 
 # Capture the IP and write to a file
 resource "local_file" "ansible_inventory" {
-  content = templatefile("${path.module}/inventory.tftpl", {
-    ip_address = aws_instance.legacy_server.public_ip
+  content = templatefile("${path.module}/inventory.tpl", {
+    web_ip = aws_instance.web_server.public_ip,
+    db_ip  = aws_instance.db_server.public_ip
   })
-  filename = "${path.module}/inventory.ini"
+  filename = "${path.module}/../ansible/inventory.ini"
 }
