@@ -1,1 +1,0 @@
-{"rsync":{"/vagrant":{"type":"rsync","rsync__exclude":[".git/",".vagrant/"],"guestpath":"/vagrant","hostpath":"/home/roman/woocommerce-breachbox","disabled":false,"__vagrantfile":true,"exclude":[".git/",".vagrant/"],"owner":"vagrant","group":"vagrant"}}}
