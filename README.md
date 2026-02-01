@@ -1,2 +1,6 @@
-# woocommerce-broccoli
-Staging ground
+# WooCommerce BreachBox
+Intentionally vulnerable WooCommerce web application and hosting environment.
+
+⚠️ WARNING: This repository contains intentionally vulnerable software and outdated OS configurations.
+
+**DO NOT DEPLOY THIS IN A PRODUCTION ENVIRONMENT**
