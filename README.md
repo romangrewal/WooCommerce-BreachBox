@@ -1,5 +1,5 @@
 # WooCommerce BreachBox
-Intentionally vulnerable WooCommerce web application and hosting environment
+Intentionally vulnerable WooCommerce web application and hosting environment.
 
 ⚠️ WARNING: This repository contains intentionally vulnerable software and outdated OS configurations.
 
