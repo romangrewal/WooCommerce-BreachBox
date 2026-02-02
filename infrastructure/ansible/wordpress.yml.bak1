@@ -25,47 +25,11 @@
         state: present
         update_cache: yes
 
-    - name: Force Overwrite Apache VirtualHost for WordPress
-      become: yes
-      copy:
-        dest: /etc/apache2/sites-available/000-default.conf
-        content: |
-          <VirtualHost *:80>
-              ServerAdmin webmaster@localhost
-              DocumentRoot {{ wp_root_dir }}
-
-              <Directory {{ wp_root_dir }}>
-                  Options Indexes FollowSymLinks
-                  AllowOverride All
-                  Require all granted
-              </Directory>
-
-              ErrorLog ${APACHE_LOG_DIR}/error.log
-              CustomLog ${APACHE_LOG_DIR}/access.log combined
-          </VirtualHost>
-
-    - name: Manually Create .htaccess with WordPress Rewrite Rules
-      copy:
-        dest: "{{ wp_root_dir }}/.htaccess"
-        content: |
-          # BEGIN WordPress
-          <IfModule mod_rewrite.c>
-          RewriteEngine On
-          RewriteBase /
-          RewriteRule ^index\.php$ - [L]
-          RewriteCond %{REQUEST_FILENAME} !-f
-          RewriteCond %{REQUEST_FILENAME} !-d
-          RewriteRule . /index.php [L]
-          </IfModule>
-          # END WordPress
-        owner: www-data
-        group: www-data
-        mode: '0666'
-
     - name: Configure Web Server for WordPress
       shell: |
         a2enmod rewrite
         a2enmod php7.0
+        sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
       notify: restart apache
 
     - name: Set PHP Priority

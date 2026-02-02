@@ -1,0 +1,185 @@
+---
+- name: Install Vulnerable WordPress 5.0 and WooCommerce 3.4.0
+  hosts: localhost
+  become: yes
+  vars:
+    wp_db_name: "wordpress_db"
+    wp_db_user: "wp_user"
+    wp_db_pass: "InsecurePassword123"
+    wp_root_dir: "/var/www/html"
+
+  tasks:
+    ## 1. INFRASTRUCTURE AND PREREQUISITES
+    - name: Install Stack (Apache, MariaDB, PHP 7.0)
+      apt:
+        name:
+          - software-properties-common
+          - python-mysqldb
+          - apache2
+          - mariadb-server
+          - php7.0
+          - php7.0-mysql
+          - php-imagick
+          - unzip
+          - libapache2-mod-php7.0
+        state: present
+        update_cache: yes
+
+    - name: Start Services
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop: [apache2, mysql]
+
+    ## 2. DATABASE CONFIGURATION
+    - name: Create MySQL Database and User
+      mysql_db:
+        name: "{{ wp_db_name }}"
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Create MySQL User
+      mysql_user:
+        name: "{{ wp_db_user }}"
+        password: "{{ wp_db_pass }}"
+        priv: "{{ wp_db_name }}.*:ALL"
+        host: "localhost"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    ## 3. WORDPRESS CORE INSTALLATION
+    - name: Download and Extract WordPress 5.0
+      unarchive:
+        src: https://wordpress.org/wordpress-5.0.tar.gz
+        dest: /tmp
+        remote_src: yes
+
+    - name: Deploy WordPress to Web Root
+      copy:
+        src: /tmp/wordpress/
+        dest: "{{ wp_root_dir }}"
+        owner: www-data
+        group: www-data
+        remote_src: yes
+
+    - name: Configure wp-config.php
+      shell: |
+        cp {{ wp_root_dir }}/wp-config-sample.php {{ wp_root_dir }}/wp-config.php
+        sed -i "s/database_name_here/{{ wp_db_name }}/" {{ wp_root_dir }}/wp-config.php
+        sed -i "s/username_here/{{ wp_db_user }}/" {{ wp_root_dir }}/wp-config.php
+        sed -i "s/password_here/{{ wp_db_pass }}/" {{ wp_root_dir }}/wp-config.php
+
+    - name: Disable WordPress Auto-Updates in wp-config.php
+      lineinfile:
+        path: "{{ wp_root_dir }}/wp-config.php"
+        insertbefore: "\\/\\* That's all, stop editing! \\*\\/"
+        line: "{{ item }}"
+      loop:
+        - "define( 'AUTOMATIC_UPDATER_DISABLED', true );"
+        - "define( 'WP_AUTO_UPDATE_CORE', false );"
+
+    - name: Set Vulnerable Permissions (0777)
+      file:
+        path: "{{ wp_root_dir }}"
+        state: directory
+        recurse: yes
+        mode: '0777'
+
+    ## 4. WOOCOMMERCE SETUP
+    - name: Install Legacy WooCommerce 3.4.0
+      unarchive:
+        src: https://downloads.wordpress.org/plugin/woocommerce.3.4.0.zip
+        dest: "{{ wp_root_dir }}/wp-content/plugins/"
+        remote_src: yes
+
+    - name: Force Insecure Permissions on Plugin Directory
+      file:
+        path: "{{ wp_root_dir }}/wp-content/plugins/woocommerce"
+        state: directory
+        recurse: yes
+        mode: '0777' # PCI Violation: Allows attackers to inject malicious code into the payment gateway
+
+    - name: Setup WP-CLI
+      get_url:
+        url: https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+        dest: /usr/local/bin/wp
+        mode: '0755'
+
+    - name: Run WP Core Install
+      command: >
+        wp core install
+        --url="http://{{ ansible_eth1.ipv4.address }}"
+        --title="Vulnerable Store"
+        --admin_user="admin"
+        --admin_password="P@ssword123"
+        --admin_email="admin@example.com"
+        --path="{{ wp_root_dir }}"
+        --allow-root
+
+    - name: Activate and Configure WooCommerce
+      shell: |
+        wp plugin activate woocommerce --allow-root --path={{ wp_root_dir }}
+        wp option update woocommerce_setup_status "completed" --allow-root --path={{ wp_root_dir }}
+        wp wc tool run install_pages --allow-root --user=admin --path={{ wp_root_dir }}
+        wp rewrite structure '/%postname%/' --hard --allow-root --path={{ wp_root_dir }}
+
+    # 5. APACHE WEB SERVER FIXES (PCI-DSS Vulnerability Simulation)
+    - name: Enable Mod_Rewrite and AllowOverride
+      shell: |
+        a2enmod rewrite
+        sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
+      notify: restart apache
+
+    - name: Create and Secure .htaccess
+      file:
+        path: "{{ wp_root_dir }}/.htaccess"
+        state: touch
+        mode: '0666' # Insecure: allows WP to write rules, but also allows attackers to modify
+
+    - name: Final Permalinks Flush
+      command: wp rewrite flush --hard --allow-root
+      args:
+        chdir: "{{ wp_root_dir }}"
+
+    - name: Fix Plaintext PHP and Missing Module
+      become: yes
+      block:
+        - name: Enable PHP 7.0 Module
+          shell: a2enmod php7.0
+          notify: restart apache
+
+        - name: Set PHP as Priority Directory Index
+          lineinfile:
+            path: /etc/apache2/mods-enabled/dir.conf
+            regexp: 'DirectoryIndex index.html index.cgi index.pl index.php index.xhtml index.htm'
+            line: 'DirectoryIndex index.php index.html index.cgi index.pl index.xhtml index.htm'
+          notify: restart apache
+
+    - name: Map all WooCommerce Core Pages
+      shell: |
+        PAGE_ID=$(wp post list --post_type=page --name="{{ item.name }}" --field=ID --allow-root --path={{ wp_root_dir }})
+        wp option update {{ item.option }} "$PAGE_ID" --allow-root --path={{ wp_root_dir }}
+      loop:
+        - { name: 'shop', option: 'woocommerce_shop_page_id' }
+        - { name: 'cart', option: 'woocommerce_cart_page_id' }
+        - { name: 'checkout', option: 'woocommerce_checkout_page_id' }
+        - { name: 'my-account', option: 'woocommerce_myaccount_page_id' }
+
+    - name: Ensure .htaccess is Present for Permalinks
+      file:
+        path: "{{ wp_root_dir }}/.htaccess"
+        state: touch
+        owner: www-data
+        group: www-data
+        mode: '0666'
+
+    - name: Force Rewrite Flush
+      command: wp rewrite flush --hard --allow-root
+      args:
+        chdir: "{{ wp_root_dir }}"
+
+  handlers:
+    - name: restart apache
+      service:
+        name: apache2
+        state: restarted
