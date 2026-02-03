@@ -9,7 +9,7 @@
     wp_root_dir: "/var/www/html"
 
   tasks:
-    ## 1. INFRASTRUCTURE & PHP-APACHE INTEGRATION (Do this first!)
+    ## 1. INFRASTRUCTURE & PHP-APACHE INTEGRATION
     - name: Install Stack (Apache, MariaDB, PHP 7.0)
       apt:
         name:
@@ -122,14 +122,7 @@
         echo "define( 'AUTOMATIC_UPDATER_DISABLED', true );" >> {{ wp_root_dir }}/wp-config.php
         echo "define( 'WP_AUTO_UPDATE_CORE', false );" >> {{ wp_root_dir }}/wp-config.php
 
-    - name: Set Vulnerable Permissions (PCI Violation Simulation)
-      file:
-        path: "{{ wp_root_dir }}"
-        state: directory
-        recurse: yes
-        mode: '0777'
-
-    ## 4. WP-CLI CONFIGURATION (The "Logic" Layer)
+    ## 4. WP-CLI CONFIGURATION & FINAL SYNC
     - name: Setup WP-CLI
       get_url:
         url: https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
@@ -146,49 +139,59 @@
         --admin_email="admin@example.com"
         --path="{{ wp_root_dir }}"
         --allow-root
-    
-    - name: Final WooCommerce Mapping and Permalink Flush
+
+    - name: Final WooCommerce Mapping, Configuration, and Permalink Flush
       shell: |
-        # Activate and complete setup
+        # 1. Base Setup
         wp plugin activate woocommerce --allow-root --path={{ wp_root_dir }}
         wp option update woocommerce_setup_status "completed" --allow-root --path={{ wp_root_dir }}
         wp wc tool run install_pages --allow-root --user=admin --path={{ wp_root_dir }}
 
-        # Map IDs using a bash loop - we use single quotes to keep bash logic away from Jinja
+        # 2. Map IDs (Safe Bash concatenation)
         for p in shop cart checkout my-account; do
           ID=$(wp post list --post_type=page --name="$p" --field=ID --allow-root --path={{ wp_root_dir }})
-          
-          if [ "$p" = "shop" ]; then
-            OPT="woocommerce_shop_page_id"
-          elif [ "$p" = "my-account" ]; then
-            OPT="woocommerce_myaccount_page_id"
-          else
-            # Construction that avoids the ${p} Jinja2 conflict
-            OPT="woocommerce_"$p"_page_id"
-          fi
-          
+          [ "$p" = "shop" ] && OPT="woocommerce_shop_page_id" || OPT="woocommerce_"${p}"_page_id"
+          [ "$p" = "my-account" ] && OPT="woocommerce_myaccount_page_id"
           wp option update "$OPT" "$ID" --allow-root --path={{ wp_root_dir }}
         done
 
-        # Storefront Setup
-        wp theme install storefront --activate --allow-root --path={{ wp_root_dir }}
+        # 3. DIRECT SQL INJECTION (Fixes the payment method error)
+        # We manually enable the 'cheque' method and 'free_shipping' to Zone 0
+        mysql -u {{ wp_db_user }} -p{{ wp_db_pass }} {{ wp_db_name }} -e "INSERT IGNORE INTO wp_woocommerce_shipping_zone_methods (zone_id, method_id, method_order, is_enabled) VALUES (0, 'cheque', 1, 1), (0, 'free_shipping', 2, 1);"
+
+        # 4. Force Gateway Initialization (Serialized PHP for order, JSON for settings)
+        wp option update woocommerce_gateway_order 'a:1:{s:6:"cheque";i:0;}' --allow-root --path={{ wp_root_dir }}
+        wp option update woocommerce_cheque_settings '{"enabled":"yes","title":"Check payments","description":"Lab Payment","instructions":"N/A"}' --format=json --allow-root --path={{ wp_root_dir }}
         
-        # Assign Homepage template to the Shop page
+        # 5. Global Location Overrides (Bypasses location-based blocking)
+        wp option update woocommerce_allowed_countries 'all' --allow-root --path={{ wp_root_dir }}
+        wp option update woocommerce_ship_to_countries 'all' --allow-root --path={{ wp_root_dir }}
+        wp option update woocommerce_default_customer_address 'base' --allow-root --path={{ wp_root_dir }}
+
+        # 6. Storefront Theme & Blog Removal
+        wp theme install storefront --activate --allow-root --path={{ wp_root_dir }}
         SHOP_ID=$(wp post list --post_type=page --name=shop --field=ID --allow-root --path={{ wp_root_dir }})
         wp post update "$SHOP_ID" --page_template=template-homepage.php --allow-root --path={{ wp_root_dir }}
-
-        # Set Shop as Front Page
         wp option update show_on_front 'page' --allow-root --path={{ wp_root_dir }}
         wp option update page_on_front "$SHOP_ID" --allow-root --path={{ wp_root_dir }}
+        wp widget reset sidebar-1 --allow-root --path={{ wp_root_dir }}
 
-        # Add a sample product
+        # 7. Final Flush & Product Creation
         wp wc product create --name="Vulnerable T-Shirt" --type="simple" --regular_price="19.99" --user=admin --allow-root --path={{ wp_root_dir }}
-
-        # Final Flush
+        wp db query "DELETE FROM wp_options WHERE option_name LIKE '_transient_wc_ship_%' OR option_name LIKE '_transient_timeout_wc_ship_%';" --allow-root --path={{ wp_root_dir }}
+        wp db query "TRUNCATE TABLE wp_woocommerce_sessions;" --allow-root --path={{ wp_root_dir }}
+        wp transient delete --all --allow-root --path={{ wp_root_dir }}
         wp rewrite structure '/%postname%/' --hard --allow-root --path={{ wp_root_dir }}
         wp rewrite flush --hard --allow-root --path={{ wp_root_dir }}
       args:
         executable: /bin/bash
+
+    - name: Set Vulnerable Permissions (PCI Violation Simulation)
+      file:
+        path: "{{ wp_root_dir }}"
+        state: directory
+        recurse: yes
+        mode: '0777'
 
   handlers:
     - name: restart apache
