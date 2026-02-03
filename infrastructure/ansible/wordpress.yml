@@ -177,7 +177,16 @@
         wp widget reset sidebar-1 --allow-root --path={{ wp_root_dir }}
 
         # 7. Final Flush & Product Creation
-        wp wc product create --name="Vulnerable T-Shirt" --type="simple" --regular_price="19.99" --user=admin --allow-root --path={{ wp_root_dir }}
+        # This loop creates 5 different products with varied prices
+        for i in {1..5}; do
+          wp wc product create \
+            --name="Store Item #$i" \
+            --type="simple" \
+            --regular_price="$((10 + i)).99" \
+            --description="Testing object ID: $i" \
+            --user=admin --allow-root --path={{ wp_root_dir }}
+        done
+
         wp db query "DELETE FROM wp_options WHERE option_name LIKE '_transient_wc_ship_%' OR option_name LIKE '_transient_timeout_wc_ship_%';" --allow-root --path={{ wp_root_dir }}
         wp db query "TRUNCATE TABLE wp_woocommerce_sessions;" --allow-root --path={{ wp_root_dir }}
         wp transient delete --all --allow-root --path={{ wp_root_dir }}
