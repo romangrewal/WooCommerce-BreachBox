@@ -38,7 +38,7 @@ Vagrant.configure("2") do |config|
     ansible.become = true
     ansible.become_user = "root"
     ansible.compatibility_mode = "2.0"
-    ansible.playbook = "infrastructure/ansible/wordpress.yml"
+    ansible.playbook = "infrastructure/ansible/shop.yml"
     ansible.inventory_path = "infrastructure/ansible/inventory.ini"
     # Note: Ubuntu 16.04 hostnames vary; 'all' is safer than a specific limit 
     # unless your inventory.ini specifically defines localhost.localdomain

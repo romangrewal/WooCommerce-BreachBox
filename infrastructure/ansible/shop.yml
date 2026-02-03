@@ -97,8 +97,8 @@
         host: "localhost"
         login_unix_socket: /var/run/mysqld/mysqld.sock
 
-    ## 3. WORDPRESS & WOOCOMMERCE INSTALLATION
-    - name: Download WP and WooCommerce
+    ## 3. DOWNLOAD & DEPLOY WP + PLUGINS
+    - name: Download WP and Core Plugins
       unarchive:
         src: "{{ item.url }}"
         dest: "{{ item.dest }}"
@@ -106,11 +106,15 @@
       loop:
         - { url: 'https://wordpress.org/wordpress-5.0.tar.gz', dest: '/tmp' }
         - { url: 'https://downloads.wordpress.org/plugin/woocommerce.3.4.0.zip', dest: '/tmp' }
+        - { url: 'https://downloads.wordpress.org/plugin/contact-form-7.5.0.3.zip', dest: '/tmp' }
+        - { url: 'https://downloads.wordpress.org/plugin/wp-statistics.12.6.6.zip', dest: '/tmp' }
 
     - name: Deploy Files to Web Root
       shell: |
         cp -r /tmp/wordpress/* {{ wp_root_dir }}/
         cp -r /tmp/woocommerce {{ wp_root_dir }}/wp-content/plugins/
+        cp -r /tmp/contact-form-7 {{ wp_root_dir }}/wp-content/plugins/
+        cp -r /tmp/wp-statistics {{ wp_root_dir }}/wp-content/plugins/
         chown -R www-data:www-data {{ wp_root_dir }}
 
     - name: Configure wp-config.php
@@ -140,14 +144,18 @@
         --path="{{ wp_root_dir }}"
         --allow-root
 
+    - name: Create Low-Privilege Contributor User
+      command: wp user create victim victim@example.com --role=contributor --user_pass=Victim123 --allow-root --path={{ wp_root_dir }}
+
     - name: Final WooCommerce Mapping, Configuration, and Permalink Flush
       shell: |
-        # 1. Base Setup
-        wp plugin activate woocommerce --allow-root --path={{ wp_root_dir }}
+        # 1. Base Setup & Activation
+        wp plugin activate woocommerce contact-form-7 wp-statistics --allow-root --path={{ wp_root_dir }}
         wp option update woocommerce_setup_status "completed" --allow-root --path={{ wp_root_dir }}
         wp wc tool run install_pages --allow-root --user=admin --path={{ wp_root_dir }}
+        wp option update wp_statistics_cache_plugin "1" --allow-root --path={{ wp_root_dir }}
 
-        # 2. Map IDs (Safe Bash concatenation)
+        # 2. Map IDs (Shop, Cart, etc.)
         for p in shop cart checkout my-account; do
           ID=$(wp post list --post_type=page --name="$p" --field=ID --allow-root --path={{ wp_root_dir }})
           [ "$p" = "shop" ] && OPT="woocommerce_shop_page_id" || OPT="woocommerce_"${p}"_page_id"
@@ -155,20 +163,17 @@
           wp option update "$OPT" "$ID" --allow-root --path={{ wp_root_dir }}
         done
 
-        # 3. DIRECT SQL INJECTION (Fixes the payment method error)
-        # We manually enable the 'cheque' method and 'free_shipping' to Zone 0
+        # 3. DIRECT SQL INJECTION (Payments Fix)
         mysql -u {{ wp_db_user }} -p{{ wp_db_pass }} {{ wp_db_name }} -e "INSERT IGNORE INTO wp_woocommerce_shipping_zone_methods (zone_id, method_id, method_order, is_enabled) VALUES (0, 'cheque', 1, 1), (0, 'free_shipping', 2, 1);"
 
-        # 4. Force Gateway Initialization (Serialized PHP for order, JSON for settings)
+        # 4. Gateway & Location Config
         wp option update woocommerce_gateway_order 'a:1:{s:6:"cheque";i:0;}' --allow-root --path={{ wp_root_dir }}
         wp option update woocommerce_cheque_settings '{"enabled":"yes","title":"Check payments","description":"Lab Payment","instructions":"N/A"}' --format=json --allow-root --path={{ wp_root_dir }}
-        
-        # 5. Global Location Overrides (Bypasses location-based blocking)
         wp option update woocommerce_allowed_countries 'all' --allow-root --path={{ wp_root_dir }}
         wp option update woocommerce_ship_to_countries 'all' --allow-root --path={{ wp_root_dir }}
         wp option update woocommerce_default_customer_address 'base' --allow-root --path={{ wp_root_dir }}
 
-        # 6. Storefront Theme & Blog Removal
+        # 5. Storefront Theme Setup
         wp theme install storefront --activate --allow-root --path={{ wp_root_dir }}
         SHOP_ID=$(wp post list --post_type=page --name=shop --field=ID --allow-root --path={{ wp_root_dir }})
         wp post update "$SHOP_ID" --page_template=template-homepage.php --allow-root --path={{ wp_root_dir }}
@@ -176,8 +181,7 @@
         wp option update page_on_front "$SHOP_ID" --allow-root --path={{ wp_root_dir }}
         wp widget reset sidebar-1 --allow-root --path={{ wp_root_dir }}
 
-        # 7. Final Flush & Product Creation
-        # This loop creates 5 different products with varied prices
+        # 6. Generate Store Products
         for i in {1..5}; do
           wp wc product create \
             --name="Store Item #$i" \
@@ -187,6 +191,28 @@
             --user=admin --allow-root --path={{ wp_root_dir }}
         done
 
+        # 8. AUTOMATED CONTACT FORM CREATION (The Robust Way)
+        FORM_TEMPLATE='<label> Your Name (required) [text* your-name] </label> <label> Your Email (required) [email* your-email] </label> <label> Subject [text your-subject] </label> <label> Your Message [textarea your-message] </label> [submit "Send"]'
+
+        # Create the form post
+        CF7_ID=$(wp post create --post_type=wpcf7_contact_form \
+                       --post_title="Insecure Contact Form" \
+                       --post_content="$FORM_TEMPLATE" \
+                       --post_status=publish --porcelain --allow-root --path={{ wp_root_dir }})
+
+        # CRITICAL: Set the metadata so CF7 recognizes the form fields
+        wp post meta set $CF7_ID _form "$FORM_TEMPLATE" --allow-root --path={{ wp_root_dir }}
+
+        # Set basic mail settings (needed for the plugin to consider the form "valid")
+        wp post meta set $CF7_ID _mail '{"active":true,"subject":"Lab Inquiry","sender":"wordpress@lab.local","recipient":"admin@example.com","body":"From: [your-name] <[your-email]>\nSubject: [your-subject]\n\nMessage Body:\n[your-message]","additional_headers":"","attachments":"","use_html":false}' --format=json --allow-root --path={{ wp_root_dir }}
+
+        # Create the Page and link the ID
+        wp post create --post_type=page \
+                       --post_title="Contact Us" \
+                       --post_content='[contact-form-7 id="'$CF7_ID'" title="Insecure Contact Form"]' \
+                       --post_status=publish --allow-root --path={{ wp_root_dir }}
+
+        # 9. Nuclear Flush
         wp db query "DELETE FROM wp_options WHERE option_name LIKE '_transient_wc_ship_%' OR option_name LIKE '_transient_timeout_wc_ship_%';" --allow-root --path={{ wp_root_dir }}
         wp db query "TRUNCATE TABLE wp_woocommerce_sessions;" --allow-root --path={{ wp_root_dir }}
         wp transient delete --all --allow-root --path={{ wp_root_dir }}
