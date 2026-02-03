@@ -146,7 +146,7 @@
         --admin_email="admin@example.com"
         --path="{{ wp_root_dir }}"
         --allow-root
-
+    
     - name: Final WooCommerce Mapping and Permalink Flush
       shell: |
         # Activate and complete setup
@@ -154,24 +154,37 @@
         wp option update woocommerce_setup_status "completed" --allow-root --path={{ wp_root_dir }}
         wp wc tool run install_pages --allow-root --user=admin --path={{ wp_root_dir }}
 
-        # Map IDs using a bash loop
+        # Map IDs using a bash loop - we use single quotes to keep bash logic away from Jinja
         for p in shop cart checkout my-account; do
-          # Use WP-CLI to find the ID
           ID=$(wp post list --post_type=page --name="$p" --field=ID --allow-root --path={{ wp_root_dir }})
-
-          # Logic to determine the option key
-          if [ "$p" == "shop" ]; then
+          
+          if [ "$p" = "shop" ]; then
             OPT="woocommerce_shop_page_id"
-          elif [ "$p" == "my-account" ]; then
+          elif [ "$p" = "my-account" ]; then
             OPT="woocommerce_myaccount_page_id"
           else
-            OPT="woocommerce_${p}_page_id"
+            # Construction that avoids the ${p} Jinja2 conflict
+            OPT="woocommerce_"$p"_page_id"
           fi
-
+          
           wp option update "$OPT" "$ID" --allow-root --path={{ wp_root_dir }}
         done
 
-        # The "Master Flush"
+        # Storefront Setup
+        wp theme install storefront --activate --allow-root --path={{ wp_root_dir }}
+        
+        # Assign Homepage template to the Shop page
+        SHOP_ID=$(wp post list --post_type=page --name=shop --field=ID --allow-root --path={{ wp_root_dir }})
+        wp post update "$SHOP_ID" --page_template=template-homepage.php --allow-root --path={{ wp_root_dir }}
+
+        # Set Shop as Front Page
+        wp option update show_on_front 'page' --allow-root --path={{ wp_root_dir }}
+        wp option update page_on_front "$SHOP_ID" --allow-root --path={{ wp_root_dir }}
+
+        # Add a sample product
+        wp wc product create --name="Vulnerable T-Shirt" --type="simple" --regular_price="19.99" --user=admin --allow-root --path={{ wp_root_dir }}
+
+        # Final Flush
         wp rewrite structure '/%postname%/' --hard --allow-root --path={{ wp_root_dir }}
         wp rewrite flush --hard --allow-root --path={{ wp_root_dir }}
       args:
