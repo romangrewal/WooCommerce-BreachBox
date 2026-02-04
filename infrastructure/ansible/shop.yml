@@ -117,6 +117,27 @@
         cp -r /tmp/wp-statistics {{ wp_root_dir }}/wp-content/plugins/
         chown -R www-data:www-data {{ wp_root_dir }}
 
+    - name: Create mu-plugins directory
+      file:
+        path: "{{ wp_root_dir }}/wp-content/mu-plugins"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Force Mail Success for Lab Environment
+      copy:
+        dest: "{{ wp_root_dir }}/wp-content/mu-plugins/force-mail-success.php"
+        content: |
+          <?php
+          /* Description: Forces WordPress to return true for mail attempts in a lab setting.
+          */
+          add_filter('pre_wp_mail', function($return, $atts) {
+              return true;
+          }, 10, 2);
+        owner: www-data
+        group: www-data
+
     - name: Configure wp-config.php
       shell: |
         cp {{ wp_root_dir }}/wp-config-sample.php {{ wp_root_dir }}/wp-config.php
@@ -125,6 +146,8 @@
         sed -i "s/password_here/{{ wp_db_pass }}/" {{ wp_root_dir }}/wp-config.php
         echo "define( 'AUTOMATIC_UPDATER_DISABLED', true );" >> {{ wp_root_dir }}/wp-config.php
         echo "define( 'WP_AUTO_UPDATE_CORE', false );" >> {{ wp_root_dir }}/wp-config.php
+        # Force CF7 to bypass mail server verification (crucial for labs without SMTP)
+        echo "define( 'WPCF7_LOAD_JS', false );" >> {{ wp_root_dir }}/wp-config.php
 
     ## 4. WP-CLI CONFIGURATION & FINAL SYNC
     - name: Setup WP-CLI
@@ -172,6 +195,10 @@
         wp option update woocommerce_allowed_countries 'all' --allow-root --path={{ wp_root_dir }}
         wp option update woocommerce_ship_to_countries 'all' --allow-root --path={{ wp_root_dir }}
         wp option update woocommerce_default_customer_address 'base' --allow-root --path={{ wp_root_dir }}
+        # Change currency to USD
+        wp option update woocommerce_currency 'USD' --allow-root --path={{ wp_root_dir }}
+        # Set currency position to left (optional, standard for USD)
+        wp option update woocommerce_currency_pos 'left' --allow-root --path={{ wp_root_dir }}
 
         # 5. Storefront Theme Setup
         wp theme install storefront --activate --allow-root --path={{ wp_root_dir }}
@@ -211,6 +238,11 @@
                        --post_title="Contact Us" \
                        --post_content='[contact-form-7 id="'$CF7_ID'" title="Insecure Contact Form"]' \
                        --post_status=publish --allow-root --path={{ wp_root_dir }}
+        # Disable the domain validation check in the database
+        wp option update wpcf7_validate_configuration "false" --allow-root --path={{ wp_root_dir }}
+        # Set mail settings with a more "acceptable" sender format
+        wp post meta set $CF7_ID _mail '{"active":true,"subject":"Lab Inquiry","sender":"admin@{{ ansible_eth1.ipv4.address }}","recipient":"admin@localhost","body":"[your-message]","additional_headers":"Reply-To: [your-email]","attachments":"","use_html":false}' --format=json --allow-root --path={{ wp_root_dir }}
+
 
         # 9. Nuclear Flush
         wp db query "DELETE FROM wp_options WHERE option_name LIKE '_transient_wc_ship_%' OR option_name LIKE '_transient_timeout_wc_ship_%';" --allow-root --path={{ wp_root_dir }}
