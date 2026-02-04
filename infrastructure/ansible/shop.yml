@@ -117,27 +117,6 @@
         cp -r /tmp/wp-statistics {{ wp_root_dir }}/wp-content/plugins/
         chown -R www-data:www-data {{ wp_root_dir }}
 
-    - name: Create mu-plugins directory
-      file:
-        path: "{{ wp_root_dir }}/wp-content/mu-plugins"
-        state: directory
-        owner: www-data
-        group: www-data
-        mode: '0755'
-
-    - name: Force Mail Success for Lab Environment
-      copy:
-        dest: "{{ wp_root_dir }}/wp-content/mu-plugins/force-mail-success.php"
-        content: |
-          <?php
-          /* Description: Forces WordPress to return true for mail attempts in a lab setting.
-          */
-          add_filter('pre_wp_mail', function($return, $atts) {
-              return true;
-          }, 10, 2);
-        owner: www-data
-        group: www-data
-
     - name: Configure wp-config.php
       shell: |
         cp {{ wp_root_dir }}/wp-config-sample.php {{ wp_root_dir }}/wp-config.php
@@ -146,8 +125,6 @@
         sed -i "s/password_here/{{ wp_db_pass }}/" {{ wp_root_dir }}/wp-config.php
         echo "define( 'AUTOMATIC_UPDATER_DISABLED', true );" >> {{ wp_root_dir }}/wp-config.php
         echo "define( 'WP_AUTO_UPDATE_CORE', false );" >> {{ wp_root_dir }}/wp-config.php
-        # Force CF7 to bypass mail server verification (crucial for labs without SMTP)
-        echo "define( 'WPCF7_LOAD_JS', false );" >> {{ wp_root_dir }}/wp-config.php
 
     ## 4. WP-CLI CONFIGURATION & FINAL SYNC
     - name: Setup WP-CLI
@@ -217,32 +194,46 @@
             --description="Testing object ID: $i" \
             --user=admin --allow-root --path={{ wp_root_dir }}
         done
+        
+        # 1. CLEANUP: Remove any existing contact forms (including the default "Contact form 1")
+        wp post delete $(wp post list --post_type=wpcf7_contact_form --format=ids --allow-root --path={{ wp_root_dir }}) --force --allow-root --path={{ wp_root_dir }} || true
 
-        # 8. AUTOMATED CONTACT FORM CREATION (The Robust Way)
-        FORM_TEMPLATE='<label> Your Name (required) [text* your-name] </label> <label> Your Email (required) [email* your-email] </label> <label> Subject [text your-subject] </label> <label> Your Message [textarea your-message] </label> [submit "Send"]'
+        # 2. DEFINE TEMPLATE: Added [file file-999] for vulnerability testing
+        FORM_TEMPLATE='<label> Your Name [text* your-name] </label> 
+        <label> Your Email [email* your-email] </label> 
+        <label> Attachment [file file-999 limit:2mb filetypes:jpg|png|pdf] </label>
+        <label> Your Message [textarea your-message] </label> [submit "Send"]'
 
-        # Create the form post
+        # 3. CREATE FORM
         CF7_ID=$(wp post create --post_type=wpcf7_contact_form \
                        --post_title="Insecure Contact Form" \
                        --post_content="$FORM_TEMPLATE" \
                        --post_status=publish --porcelain --allow-root --path={{ wp_root_dir }})
 
-        # CRITICAL: Set the metadata so CF7 recognizes the form fields
+        # 4. METADATA: Map the form structure and file attachment logic
         wp post meta set $CF7_ID _form "$FORM_TEMPLATE" --allow-root --path={{ wp_root_dir }}
 
-        # Set basic mail settings (needed for the plugin to consider the form "valid")
-        wp post meta set $CF7_ID _mail '{"active":true,"subject":"Lab Inquiry","sender":"wordpress@lab.local","recipient":"admin@example.com","body":"From: [your-name] <[your-email]>\nSubject: [your-subject]\n\nMessage Body:\n[your-message]","additional_headers":"","attachments":"","use_html":false}' --format=json --allow-root --path={{ wp_root_dir }}
+        # Note the inclusion of [file-999] in the "attachments" field of the JSON
+        MAIL_JSON='{
+            "active":true,
+            "subject":"Lab Submission with File",
+            "sender":"wordpress@localhost",
+            "recipient":"admin@example.com",
+            "body":"Message from [your-name]:\n[your-message]",
+            "additional_headers":"Reply-To: [your-email]",
+            "attachments":"[file-999]",
+            "use_html":false
+        }'
+        wp post meta set $CF7_ID _mail "$MAIL_JSON" --format=json --allow-root --path={{ wp_root_dir }}
 
-        # Create the Page and link the ID
+        # 5. BYPASS VALIDATION: Stop the red box error
+        wp option update wpcf7_validate_configuration "false" --allow-root --path={{ wp_root_dir }}
+
+        # 6. PAGE CREATION: Link the shortcode
         wp post create --post_type=page \
                        --post_title="Contact Us" \
-                       --post_content='[contact-form-7 id="'$CF7_ID'" title="Insecure Contact Form"]' \
+                       --post_content="[contact-form-7 id=\"$CF7_ID\" title=\"Insecure Contact Form\"]" \
                        --post_status=publish --allow-root --path={{ wp_root_dir }}
-        # Disable the domain validation check in the database
-        wp option update wpcf7_validate_configuration "false" --allow-root --path={{ wp_root_dir }}
-        # Set mail settings with a more "acceptable" sender format
-        wp post meta set $CF7_ID _mail '{"active":true,"subject":"Lab Inquiry","sender":"admin@{{ ansible_eth1.ipv4.address }}","recipient":"admin@localhost","body":"[your-message]","additional_headers":"Reply-To: [your-email]","attachments":"","use_html":false}' --format=json --allow-root --path={{ wp_root_dir }}
-
 
         # 9. Nuclear Flush
         wp db query "DELETE FROM wp_options WHERE option_name LIKE '_transient_wc_ship_%' OR option_name LIKE '_transient_timeout_wc_ship_%';" --allow-root --path={{ wp_root_dir }}
