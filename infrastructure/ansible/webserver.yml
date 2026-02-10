@@ -1,22 +1,20 @@
 ---
 - name: Install Vulnerable WordPress 5.0 and WooCommerce 3.4.0
-  hosts: localhost
+  hosts: web_server
   become: yes
   vars:
     wp_db_name: "wordpress_db"
     wp_db_user: "wp_user"
     wp_db_pass: "InsecurePassword123"
     wp_root_dir: "/var/www/html"
+    db_server_internal_ip: "192.168.56.10"
 
   tasks:
-    ## 1. INFRASTRUCTURE & PHP-APACHE INTEGRATION
     - name: Install Stack (Apache, MariaDB, PHP 7.0)
       apt:
         name:
           - software-properties-common
-          - python-mysqldb
           - apache2
-          - mariadb-server
           - php7.0
           - php7.0-mysql
           - php-imagick
@@ -75,27 +73,11 @@
         line: 'DirectoryIndex index.php index.html index.cgi index.pl index.xhtml index.htm'
       notify: restart apache
 
-    - name: Start Services
+    - name: Start apache service
       service:
-        name: "{{ item }}"
+        name: apache2
         state: started
         enabled: yes
-      loop: [apache2, mysql]
-
-    ## 2. DATABASE CONFIGURATION
-    - name: Create MySQL Database and User
-      mysql_db:
-        name: "{{ wp_db_name }}"
-        state: present
-        login_unix_socket: /var/run/mysqld/mysqld.sock
-
-    - name: Create MySQL User
-      mysql_user:
-        name: "{{ wp_db_user }}"
-        password: "{{ wp_db_pass }}"
-        priv: "{{ wp_db_name }}.*:ALL"
-        host: "localhost"
-        login_unix_socket: /var/run/mysqld/mysqld.sock
 
     ## 3. DOWNLOAD & DEPLOY WP + PLUGINS
     - name: Download WP and Core Plugins
@@ -123,6 +105,7 @@
         sed -i "s/database_name_here/{{ wp_db_name }}/" {{ wp_root_dir }}/wp-config.php
         sed -i "s/username_here/{{ wp_db_user }}/" {{ wp_root_dir }}/wp-config.php
         sed -i "s/password_here/{{ wp_db_pass }}/" {{ wp_root_dir }}/wp-config.php
+        sed -i "s/localhost/{{ db_server_internal_ip }}/" {{ wp_root_dir }}/wp-config.php
         echo "define( 'AUTOMATIC_UPDATER_DISABLED', true );" >> {{ wp_root_dir }}/wp-config.php
         echo "define( 'WP_AUTO_UPDATE_CORE', false );" >> {{ wp_root_dir }}/wp-config.php
 
@@ -163,7 +146,7 @@
           wp option update "$OPT" "$ID" --allow-root --path={{ wp_root_dir }}
         done
 
-        # 3. DIRECT SQL INJECTION (Payments Fix)
+        # 3. DIRECT SQL INSERTION (Payments Fix)
         mysql -u {{ wp_db_user }} -p{{ wp_db_pass }} {{ wp_db_name }} -e "INSERT IGNORE INTO wp_woocommerce_shipping_zone_methods (zone_id, method_id, method_order, is_enabled) VALUES (0, 'cheque', 1, 1), (0, 'free_shipping', 2, 1);"
 
         # 4. Gateway & Location Config

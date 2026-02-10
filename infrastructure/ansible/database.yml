@@ -1,0 +1,37 @@
+- name: Setup Database Server
+  hosts: db_server
+  become: yes
+  tasks:
+    - name: Install MariaDB
+      apt: { name: mariadb-server, state: present }
+
+    - name: Install python-pymysql
+      apt:
+        name: python-pymysql
+        state: present
+
+    - name: Allow Remote Connections
+      lineinfile:
+        path: /etc/mysql/mariadb.conf.d/50-server.cnf
+        regexp: '^bind-address'
+        line: 'bind-address = 0.0.0.0'
+      notify: restart mysql
+
+    - name: Create WordPress Database
+      mysql_db:
+        name: "wordpress_db"
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Create DB and User for Web Server IP
+      mysql_user:
+        name: "wp_user"
+        password: "InsecurePassword123"
+        priv: "wordpress_db.*:ALL"
+        host: "192.168.56.11"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+  handlers:
+    - name: restart mysql
+      service:
+        name: mysql
+        state: restarted
