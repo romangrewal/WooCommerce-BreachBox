@@ -1,6 +1,6 @@
 # ![WooCommerce BreachBox logo](./assets/img/woobreachboxlogo.png)
 
-WooCommerce BreachBox is the web's only intentionaly vulnerable WooCommerce application. Based on WordPress, this WooCommerce installation includes vulnernabilities in both the WordPress and WooCommerce engines. Included in the setup is a vulnerable hosting environment which makes it possible to hack from the application layer all the way to the server.
+WooCommerce BreachBox is the web's only intentionaly vulnerable WooCommerce application. Based on WordPress, this WooCommerce installation includes vulnerabilities in both the WordPress and WooCommerce engines. Included in the setup is a vulnerable hosting environment which makes it possible to hack from the application layer all the way to the server.
 
 ![WooCommerce WPScan](./assets/video/woowpscan.gif)
 
