@@ -17,3 +17,12 @@ The software environment is dependent on two virtual machines `db_server` and `w
 ```
 vagrant up db_server web_server
 ```
+
+## Contributing
+Clone the repository and create a pull request if you have any contributions you believe should be added to the repository. Some additions that we need:
+  - Containerized infrastructure
+  - Clear UI workflow:
+      - my-account link
+      - cart link
+      - contact-us link
+  
