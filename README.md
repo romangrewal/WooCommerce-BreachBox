@@ -4,4 +4,16 @@ WooCommerce BreachBox is the web's only intentionaly vulnerable WooCommerce appl
 
 ![WooCommerce WPScan](./assets/video/woowpscan.gif)
 
-**DO NOT DEPLOY THIS IN A PRODUCTION ENVIRONMENT**
+⚠️ **DO NOT DEPLOY THIS IN A PRODUCTION ENVIRONMENT**
+
+## Software Versions
+  - **WordPress** 5.0
+  - **WooCommerce** 3.4.0
+  - **Contact-Form-7** 5.0.3
+  - **WP-Statistics** 12.6.6
+
+## Setup
+The software environment is dependent on two virtual machines `db_server` and `web_server`. Always provision `db_server` first.
+```
+vagrant up db_server web_server
+```
