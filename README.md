@@ -17,7 +17,7 @@ The software environment is dependent on two virtual machines `db_server` and `w
 ```
 vagrant up db_server web_server
 ```
-Access the appliction at http://192.168.56.11
+Access the application at http://192.168.56.11
 
 and the database server at 192.168.56.10
 
