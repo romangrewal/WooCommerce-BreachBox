@@ -1,4 +1,4 @@
-# ![WooCommerce BreachBox logo](./img/woobreachbox.png)
+# ![WooCommerce BreachBox logo](./img/woobreachboxlogo.png)
 
 Intentionally vulnerable WooCommerce web application and hosting environment.
 
