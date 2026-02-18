@@ -11,6 +11,10 @@ WooCommerce BreachBox is the web's only intentionally vulnerable WooCommerce app
   - **WooCommerce** 3.4.0
   - **Contact-Form-7** 5.0.3
   - **WP-Statistics** 12.6.6
+  - **Ubuntu** 16.04
+  - **PHP** 7.0
+  - **Apache** 2.4.18
+  - **MariaDB** 10.0.38
 
 ## Setup
 The software environment is dependent on two virtual machines `db_server` and `web_server`. Always provision `db_server` first.
