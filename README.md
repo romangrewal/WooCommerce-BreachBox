@@ -1,7 +1,43 @@
 # ![WooCommerce BreachBox logo](./assets/img/woobreachboxlogo.png)
 
-WooCommerce BreachBox is the web's only intentionaly vulnerable WooCommerce application. Based on WordPress, this WooCommerce installation includes vulernabilities in both the WordPress and WooCommerce engines. Included in the setup is a vulnerable hosting environment which gives you the opportunity to hack from the application layer all the way to the server.
+WooCommerce BreachBox is the web's only intentionally vulnerable WooCommerce application. Based on WordPress, this WooCommerce installation includes vulnerabilities in both the WordPress and WooCommerce engines. Included in the setup is a vulnerable hosting environment which makes it possible to hack from the application layer all the way to the server.
 
 ![WooCommerce WPScan](./assets/video/woowpscan.gif)
 
-**DO NOT DEPLOY THIS IN A PRODUCTION ENVIRONMENT**
+⚠️ **DO NOT DEPLOY THIS IN A PRODUCTION ENVIRONMENT**
+
+## Software Versions
+  - **WordPress** 5.0
+  - **WooCommerce** 3.4.0
+  - **Contact-Form-7** 5.0.3
+  - **WP-Statistics** 12.6.6
+  - **Ubuntu** 16.04
+  - **PHP** 7.0
+  - **Apache** 2.4.18
+  - **MariaDB** 10.0.38
+
+## Setup
+The software environment is dependent on two virtual machines `db_server` and `web_server`. Always provision `db_server` first.
+```
+vagrant up db_server web_server
+```
+Access the application at http://192.168.56.11
+
+and the database server at 192.168.56.10
+
+## UI Routes
+**NOT A COMPLETE LIST**
+- / or /shop
+- /wp-admin
+- /my-account
+- /cart
+- /contact-us
+
+## Contributing
+Clone the repository and create a pull request if you have any contributions you believe should be added. Some additions that we need:
+  - Containerized infrastructure
+  - Clear UI workflow:
+      - my-account link
+      - cart link
+      - contact-us link
+  
