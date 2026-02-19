@@ -130,6 +130,15 @@
     - name: Create Low-Privilege Contributor User
       command: wp user create victim victim@example.com --role=contributor --user_pass=Victim123 --allow-root --path={{ wp_root_dir }}
 
+    - name: Create WooCommerce Shop Manager
+      command: >
+        wp user create shopadmin shopadmin@example.com 
+        --role=shop_manager 
+        --user_pass=ShopManager123 
+        --display_name="Shop Manager"
+        --path="{{ wp_root_dir }}" 
+        --allow-root
+
     - name: Final WooCommerce Mapping, Configuration, and Permalink Flush
       shell: |
         # 1. Base Setup & Activation
